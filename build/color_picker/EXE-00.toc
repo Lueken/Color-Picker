@@ -3103,7 +3103,7 @@
  [],
  False,
  False,
- 1744258096,
+ 1744258683,
  [('runw.exe',
    'I:\\My '
    'Drive\\_00_GitHub\\Color-Picker-Tool\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',
