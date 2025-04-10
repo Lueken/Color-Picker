@@ -5,14 +5,27 @@ import keyboard
 import pyperclip
 import os
 import json
-import colorsys
+
+def get_data_directory():
+    """Get a reliable directory to store application data."""
+    # Use AppData on Windows
+    appdata = os.getenv('APPDATA')
+    if appdata:
+        data_dir = os.path.join(appdata, "ColorPickerTool")
+    else:
+        # Fallback to user's home directory
+        data_dir = os.path.join(os.path.expanduser("~"), ".colorpickertool")
+
+    # Create directory if it doesn't exist
+    os.makedirs(data_dir, exist_ok=True)
+    return data_dir
 
 class ColorPickerApp:
     def __init__(self, root):
         # Set up the main window
         self.root = root
         self.root.title("Color Picker Tool")
-        self.root.geometry("625x400")  # Larger window to accommodate favorites
+        self.root.geometry("600x400")  # Larger window to accommodate favorites
         self.root.resizable(False, False)
 
         # Favorites storage
@@ -20,7 +33,7 @@ class ColorPickerApp:
         self.load_favorites()  # Load favorites from file if exists
 
         # Try to set icon only if file exists
-        icon_path = r'I:\My Drive\_00_GitHub\Color-Picker-Tool\assets\dropper.ico'
+        icon_path = 'color_picker.ico'
         if os.path.exists(icon_path) and hasattr(root, 'iconbitmap'):
             try:
                 self.root.iconbitmap(default=icon_path)
@@ -110,9 +123,9 @@ class ColorPickerApp:
 
         # Favorites instructions
         self.favorites_instructions = ttk.Label(self.right_frame,
-                                      text="Double click a saved color to load to picker",
-                                      style="TLabel",
-                                      justify="center")
+                                              text="Double click a saved color to load into picker",
+                                              style="TLabel",
+                                              justify="center")
         self.favorites_instructions.pack(pady=(0, 10), fill=tk.X)
 
         # Frame for favorites list
@@ -237,26 +250,34 @@ class ColorPickerApp:
         self.status_var.set(f"Added {hex_code} to favorites as '{label}'")
 
     def load_favorites(self):
-        # Create favorites file path
-        favorites_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'favorites.json')
+        # Get data directory for storing favorites
+        data_dir = get_data_directory()
+        favorites_file = os.path.join(data_dir, 'favorites.json')
 
         # Check if file exists
         if os.path.exists(favorites_file):
             try:
                 with open(favorites_file, 'r') as f:
                     self.favorites = json.load(f)
+                self.status_var.set(f"Loaded favorites from {favorites_file}")
             except Exception as e:
                 print(f"Error loading favorites: {e}")
                 self.favorites = []
+        else:
+            self.favorites = []
+            print(f"No favorites file found at {favorites_file}")
 
     def save_favorites(self):
-        # Create favorites file path
-        favorites_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'favorites.json')
+        # Get data directory for storing favorites
+        data_dir = get_data_directory()
+        favorites_file = os.path.join(data_dir, 'favorites.json')
 
         # Save to file
         try:
             with open(favorites_file, 'w') as f:
                 json.dump(self.favorites, f, indent=2)
+            # Show save location in status
+            self.status_var.set(f"Saved favorites to {favorites_file}")
         except Exception as e:
             print(f"Error saving favorites: {e}")
             messagebox.showerror("Error", f"Could not save favorites: {e}")
