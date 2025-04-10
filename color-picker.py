@@ -1,14 +1,29 @@
 import tkinter as tk
-from tkinter import ttk, simpledialog, messagebox
+from tkinter import ttk, simpledialog, messagebox, filedialog
 import pyautogui
-import keyboard
+import keyboard  # This is the keyboard module for global hotkeys
 import pyperclip
 import os
 import json
+import shutil
+from pynput import mouse
+from pynput.keyboard import Key, Listener as KeyboardListener  # This is the pynput keyboard listener
 
 def get_data_directory():
-    """Get a reliable directory to store application data."""
-    # Use AppData on Windows
+    """Get the directory to store application data."""
+    # Check for a config file first
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                if 'data_dir' in config and os.path.exists(config['data_dir']):
+                    return config['data_dir']
+        except Exception as e:
+            print(f"Error reading config: {e}")
+
+    # Use AppData on Windows as fallback
     appdata = os.getenv('APPDATA')
     if appdata:
         data_dir = os.path.join(appdata, "ColorPickerTool")
@@ -25,8 +40,11 @@ class ColorPickerApp:
         # Set up the main window
         self.root = root
         self.root.title("Color Picker Tool")
-        self.root.geometry("600x400")  # Larger window to accommodate favorites
+        self.root.geometry("900x400")  # Larger window to accommodate favorites
         self.root.resizable(False, False)
+
+        # Create a string variable for status
+        self.status_var = tk.StringVar(value="Ready")
 
         # Favorites storage
         self.favorites = []
@@ -41,11 +59,24 @@ class ColorPickerApp:
                 # If icon loading fails, continue without the icon
                 pass
 
+        # Add settings option to menu
+        menubar = tk.Menu(root)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(label="Set Favorites Directory", command=self.set_data_directory)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        root.config(menu=menubar)
+
         # Create style
         style = ttk.Style()
         style.configure("TFrame", background="#f0f0f0")
         style.configure("TButton", font=("Arial", 12))
         style.configure("TLabel", font=("Arial", 12), background="#f0f0f0")
+
+        # Create custom styles for centered text
+        style.configure("Center.TLabel", anchor="center", justify="center")
+
+        # Make sure the left and right frames have proper width
+        root.update_idletasks()  # Update to get proper dimensions
 
         # Main container with left and right panels
         self.container = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
@@ -62,16 +93,19 @@ class ColorPickerApp:
         self.container.add(self.right_frame, weight=1)
 
         # ----- LEFT PANEL - COLOR PICKER -----
-        # Title label
-        self.title_label = ttk.Label(self.left_frame, text="Screen Color Picker",
-                                     font=("Arial", 16, "bold"), style="TLabel")
-        self.title_label.pack(pady=(0, 15))
+        # Container for title and instructions to ensure centering
+        title_container = tk.Frame(self.left_frame, bg="#f0f0f0")
+        title_container.pack(fill=tk.X)
 
-        # Instructions
-        self.instructions = ttk.Label(self.left_frame,
-                                     text="Mouse over any color.\nF2 to pick a color from screen",
-                                     style="TLabel",
-                                     justify="center")
+        # Title label - using tk.Label for better centering control
+        self.title_label = tk.Label(title_container, text="Screen Color Picker",
+                                     font=("Arial", 16, "bold"), bg="#f0f0f0")
+        self.title_label.pack(pady=(0, 15), fill=tk.X)
+
+        # Instructions - Using tk.Label for better centering
+        self.instructions = tk.Label(title_container,
+                                     text="F2 to activate color picker.\nPosition cursor and press SHIFT to select color.",
+                                     font=("Arial", 12), bg="#f0f0f0")
         self.instructions.pack(pady=(0, 10), fill=tk.X)
 
         # Color display
@@ -110,22 +144,27 @@ class ColorPickerApp:
         self.fav_button.pack(side=tk.RIGHT, padx=(5, 0), fill=tk.X, expand=True)
 
         # Status indicator
-        self.status_var = tk.StringVar(value="Ready")
-        self.status_label = ttk.Label(self.left_frame, textvariable=self.status_var,
-                                     font=("Arial", 10), foreground="gray")
-        self.status_label.pack(pady=(10, 0))
+        status_container = tk.Frame(self.left_frame, bg="#f0f0f0")
+        status_container.pack(pady=(10, 0), fill=tk.X)
+
+        self.status_label = tk.Label(status_container, textvariable=self.status_var,
+                                     font=("Arial", 10), foreground="gray", bg="#f0f0f0")
+        self.status_label.pack(fill=tk.X)
 
         # ----- RIGHT PANEL - FAVORITES -----
-        # Title for favorites
-        self.favorites_title = ttk.Label(self.right_frame, text="Favorite Colors",
-                                         font=("Arial", 16, "bold"), style="TLabel")
-        self.favorites_title.pack(pady=(0, 15))
+        # Container for favorites title and instructions to ensure centering
+        fav_title_container = tk.Frame(self.right_frame, bg="#f0f0f0")
+        fav_title_container.pack(fill=tk.X)
 
-        # Favorites instructions
-        self.favorites_instructions = ttk.Label(self.right_frame,
-                                              text="Double click a saved color to load into picker",
-                                              style="TLabel",
-                                              justify="center")
+        # Title for favorites - using tk.Label for better centering
+        self.favorites_title = tk.Label(fav_title_container, text="Favorite Colors",
+                                         font=("Arial", 16, "bold"), bg="#f0f0f0")
+        self.favorites_title.pack(pady=(0, 15), fill=tk.X)
+
+        # Favorites instructions - using tk.Label for better centering
+        self.favorites_instructions = tk.Label(fav_title_container,
+                                              text="Double click a saved color to load into picker.",
+                                              font=("Arial", 12), bg="#f0f0f0")
         self.favorites_instructions.pack(pady=(0, 10), fill=tk.X)
 
         # Frame for favorites list
@@ -142,14 +181,19 @@ class ColorPickerApp:
                                            show="headings",
                                            yscrollcommand=self.scrollbar.set)
 
-        self.favorites_list.heading("Label", text="Label")
-        self.favorites_list.heading("Hex", text="Hex Code")
+        # Configure column headings with center alignment
+        self.favorites_list.heading("Label", text="Label", anchor="center")
+        self.favorites_list.heading("Hex", text="Hex Code", anchor="center")
 
-        self.favorites_list.column("Label", width=120)
-        self.favorites_list.column("Hex", width=100)
+        # Configure columns with center alignment and appropriate width
+        self.favorites_list.column("Label", width=120, anchor="center")
+        self.favorites_list.column("Hex", width=100, anchor="center")
 
         self.favorites_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar.config(command=self.favorites_list.yview)
+
+        # Configure row height to allow for text wrapping
+        self.favorites_list.configure(height=10)  # Adjust visible rows
 
         # Bind double-click to load color
         self.favorites_list.bind("<Double-1>", self.load_selected_color)
@@ -176,6 +220,55 @@ class ColorPickerApp:
         # Populate favorites list
         self.refresh_favorites_list()
 
+    def set_data_directory(self):
+        """Allow user to set custom data directory"""
+        # Get initial directory
+        current_dir = get_data_directory()
+
+        # Ask user to select a directory
+        new_dir = filedialog.askdirectory(
+            title="Select Data Directory",
+            initialdir=current_dir
+        )
+
+        # If user canceled, return
+        if not new_dir:
+            return
+
+        # Confirm with user
+        if messagebox.askyesno(
+            "Confirm Directory Change",
+            f"Set data directory to:\n{new_dir}\n\nExisting favorites will be moved to the new location."
+        ):
+            try:
+                # Create config file
+                config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+                config = {'data_dir': new_dir}
+
+                # Create the new directory if it doesn't exist
+                os.makedirs(new_dir, exist_ok=True)
+
+                # Save config
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=2)
+
+                # Try to move existing favorites if they exist
+                old_favorites = os.path.join(current_dir, 'favorites.json')
+                new_favorites = os.path.join(new_dir, 'favorites.json')
+
+                if os.path.exists(old_favorites) and old_favorites != new_favorites:
+                    shutil.copy2(old_favorites, new_favorites)
+
+                # Reload favorites from new location
+                self.load_favorites()
+
+                # Update status
+                self.status_var.set(f"Data directory changed to {new_dir}")
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not set data directory: {e}")
+                return
+
     def is_dark_color(self, hex_color):
         """Determine if a color is dark (needing white text) or light (needing black text)"""
         # Remove the # symbol if present
@@ -194,24 +287,120 @@ class ColorPickerApp:
         return brightness < 0.5
 
     def pick_color(self):
-        # Minimize the window temporarily
+        # Show a message that color picker is active
+        self.status_var.set("Color picker activated - press SHIFT to pick a color without clicking")
+
+        # Disable the F2 hotkey temporarily to avoid multiple activations
+        keyboard.unhook_all()
+
+        # Create a small preview window that will follow the cursor
+        preview = tk.Toplevel(self.root)
+        preview.overrideredirect(True)  # Remove window decorations
+        preview.attributes('-topmost', True)  # Keep on top of other windows
+
+        # Create a frame to show the color
+        color_preview = tk.Frame(preview, width=60, height=30, bg="#FFFFFF")
+        color_preview.pack(side=tk.TOP, pady=2, padx=2)
+
+        # Label to show hex code
+        hex_label = tk.Label(preview, text="#FFFFFF", bg="#F0F0F0", font=("Arial", 9))
+        hex_label.pack(side=tk.BOTTOM, pady=2, padx=2, fill=tk.X)
+
+        # Position window near cursor but not directly under it
+        preview.geometry(f"80x50+{pyautogui.position()[0]+20}+{pyautogui.position()[1]-60}")
+
+        # This flag tracks if we're exiting the listener
+        self.picking_active = True
+
+        # Function to handle key press
+        def on_key_release(key):
+            try:
+                # Check if shift was pressed
+                if key == Key.shift and self.picking_active:
+                    self.picking_active = False
+
+                    # Get the current mouse position
+                    x, y = pyautogui.position()
+
+                    # Get the pixel color at position
+                    pixel_color = pyautogui.screenshot().getpixel((x, y))
+
+                    # Convert RGB to hex
+                    hex_color = '#{:02x}{:02x}{:02x}'.format(pixel_color[0], pixel_color[1], pixel_color[2])
+
+                    # Update the UI (need to schedule this for when window returns)
+                    def update_ui():
+                        self.color_frame.config(bg=hex_color)
+                        self.hex_var.set(hex_color.upper())
+                        self.status_var.set(f"Picked color at ({x}, {y})")
+                        # Re-register the F2 hotkey
+                        keyboard.add_hotkey('f2', self.pick_color)
+                        # Destroy the preview window
+                        preview.destroy()
+
+                    # Restore the window, bring to foreground, and update UI
+                    def restore_window():
+                        self.root.deiconify()
+                        self.root.lift()
+                        self.root.focus_force()  # Force focus to the window
+                        self.root.attributes('-topmost', True)  # Place window on top
+                        self.root.update()
+                        self.root.attributes('-topmost', False)  # Allow window to go behind others when user clicks elsewhere
+
+                    self.root.after(100, restore_window)
+                    self.root.after(200, update_ui)
+
+                    # Stop listening
+                    return False
+            except AttributeError:
+                # Handle case where key doesn't have the expected attributes
+                pass
+
+            # Check for Escape key to cancel
+            if key == Key.esc and self.picking_active:
+                self.picking_active = False
+                preview.destroy()
+
+                def restore_on_cancel():
+                    self.root.deiconify()
+                    self.status_var.set("Color picking cancelled")
+                    # Re-register the F2 hotkey
+                    keyboard.add_hotkey('f2', self.pick_color)
+
+                self.root.after(100, restore_on_cancel)
+                return False
+
+            return True
+
+        # Also handle mouse movement to show color preview in status bar
+        def on_mouse_move(x, y):
+            if not self.picking_active:
+                return False
+
+            try:
+                # Move the preview window to follow cursor
+                preview.geometry(f"80x50+{x+20}+{y-60}")
+
+                # Get color under cursor
+                pixel_color = pyautogui.screenshot().getpixel((x, y))
+                hex_color = '#{:02x}{:02x}{:02x}'.format(pixel_color[0], pixel_color[1], pixel_color[2])
+
+                # Update preview
+                color_preview.config(bg=hex_color)
+                hex_label.config(text=hex_color.upper())
+            except:
+                pass
+            return True
+
+        # Start listeners
+        key_listener = KeyboardListener(on_release=on_key_release)
+        key_listener.start()
+
+        mouse_listener = mouse.Listener(on_move=on_mouse_move)
+        mouse_listener.start()
+
+        # Minimize the main window
         self.root.iconify()
-        self.root.after(500)  # Small delay to allow window to minimize
-
-        # Get the mouse position and pixel color
-        x, y = pyautogui.position()
-        pixel_color = pyautogui.screenshot().getpixel((x, y))
-
-        # Convert RGB to hex
-        hex_color = '#{:02x}{:02x}{:02x}'.format(pixel_color[0], pixel_color[1], pixel_color[2])
-
-        # Update the UI
-        self.color_frame.config(bg=hex_color)
-        self.hex_var.set(hex_color.upper())
-        self.status_var.set(f"Picked color at ({x}, {y})")
-
-        # Restore the window
-        self.root.after(100, self.root.deiconify)
 
     def copy_to_clipboard(self):
         # Copy the hex code to clipboard
@@ -295,12 +484,17 @@ class ColorPickerApp:
             # Create a unique tag for this item combining color and text color info
             tag_name = f"{hex_code}_{is_dark}"
 
+            # Insert with wrapped text
             self.favorites_list.insert("", "end", values=(favorite["label"], hex_code),
                                      tags=(tag_name,))
 
             # Configure the tag with appropriate background and foreground colors
             text_color = "white" if is_dark else "black"
             self.favorites_list.tag_configure(tag_name, background=hex_code, foreground=text_color)
+
+        # Set row height to accommodate wrapped text - using style instead of direct configuration
+        style = ttk.Style()
+        style.configure('Treeview', rowheight=40)
 
     def load_selected_color(self, event):
         # Get selected item
